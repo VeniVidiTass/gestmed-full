@@ -1,0 +1,9 @@
+[submodule "gestmed-webapp"]
+	path = gestmed-webapp
+	url = https://github.com/VeniVidiTass/gestmed-webapp
+[submodule "rabbit-spike"]
+	path = rabbit-spike
+	url = https://github.com/VeniVidiTass/rabbit-spike
+[submodule "websocket-alive"]
+	path = websocket-alive
+	url = https://github.com/VeniVidiTass/websocket-alive

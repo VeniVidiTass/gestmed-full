@@ -1,0 +1,289 @@
+version: '3.8'
+
+networks:
+  gestmed-network:
+    driver: bridge
+
+services:
+  # =====================================
+  # GESTMED-WEBAPP SERVICES
+  # =====================================
+  
+  # PostgreSQL Database for GestMed
+  gestmed-postgres:
+    image: postgres:15-alpine
+    container_name: gestmed-postgres
+    environment:
+      POSTGRES_DB: gestmed
+      POSTGRES_USER: gestmed_user
+      POSTGRES_PASSWORD: gestmed_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - gestmed_postgres_data:/var/lib/postgresql/data
+      - ./gestmed-webapp/backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestmed_user -d gestmed"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - gestmed-network
+
+  # GestMed Backend API
+  gestmed-backend:
+    build:
+      context: ./gestmed-webapp/backend
+      dockerfile: Dockerfile
+    container_name: gestmed-backend
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: gestmed-postgres
+      DB_PORT: 5432
+      DB_NAME: gestmed
+      DB_USER: gestmed_user
+      DB_PASSWORD: gestmed_password
+    ports:
+      - "3000:3000"
+    depends_on:
+      gestmed-postgres:
+        condition: service_healthy
+    volumes:
+      - ./gestmed-webapp/backend:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev
+    networks:
+      - gestmed-network
+
+  # GestMed Frontend
+  gestmed-frontend:
+    build:
+      context: ./gestmed-webapp/webapp
+      dockerfile: Dockerfile.frontend
+    container_name: gestmed-frontend
+    environment:
+      VITE_API_BASE_URL: http://gestmed-backend:3000/api
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./gestmed-webapp:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+    networks:
+      - gestmed-network
+
+  # Adminer for GestMed Database
+  gestmed-adminer:
+    image: adminer:latest
+    container_name: gestmed-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      gestmed-postgres:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+
+  # =====================================
+  # RABBIT-SPIKE SERVICES
+  # =====================================
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: gestmed-rabbitmq
+    ports:
+      - "5672:5672"
+      - "8083:15672"
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks:
+      - gestmed-network
+
+  # MongoDB for RabbitMQ services
+  rabbit-mongo:
+    image: mongo:8.0.9
+    container_name: gestmed-rabbit-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - rabbit_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks:
+      - gestmed-network
+
+  # Mongo Express for MongoDB management
+  mongo-express:
+    image: mongo-express
+    container_name: gestmed-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=rabbit-mongo
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin
+    depends_on:
+      rabbit-mongo:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+
+  # RabbitMQ Producer (Spring Boot)
+  rabbit-producer:
+    build:
+      context: ./rabbit-spike
+      dockerfile: ./producer/Dockerfile
+    container_name: gestmed-rabbit-producer
+    ports:
+      - "8090:8080"
+    environment:
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_DATA_MONGODB_URI=mongodb://rabbit-mongo:27017/producer
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      rabbit-mongo:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+
+  # Email Consumer
+  rabbit-consumer-email:
+    build:
+      context: ./rabbit-spike
+      dockerfile: ./consumer-email/Dockerfile
+    container_name: gestmed-rabbit-consumer-email
+    environment:
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_DATA_MONGODB_URI=mongodb://rabbit-mongo:27017/email
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      rabbit-mongo:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+
+  # SMS Consumer
+  rabbit-consumer-sms:
+    build:
+      context: ./rabbit-spike
+      dockerfile: ./consumer-sms/Dockerfile
+    container_name: gestmed-rabbit-consumer-sms
+    environment:
+      - SPRING_RABBITMQ_HOST=rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+
+  # MailDev for email testing
+  maildev:
+    image: maildev/maildev:2.2.1
+    container_name: gestmed-maildev
+    hostname: maildev
+    environment:
+      - TZ=Europe/Rome
+      - MAILDEV_WEB_PORT=1080
+      - MAILDEV_SMTP_PORT=1025
+    ports:
+      - "8082:1080"
+      - "8025:1025"
+    depends_on:
+      rabbit-consumer-email:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+    networks:
+      - gestmed-network
+
+  # =====================================
+  # WEBSOCKET-ALIVE SERVICES
+  # =====================================
+
+  # PostgreSQL Database for Events (WebSocket Alive)
+  events-postgres:
+    image: postgres:15-alpine
+    container_name: gestmed-events-postgres
+    environment:
+      POSTGRES_DB: events_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"  # Different port to avoid conflict with gestmed-postgres
+    volumes:
+      - events_postgres_data:/var/lib/postgresql/data
+      - ./websocket-alive/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gestmed-network
+
+  # WebSocket Events Application
+  events-app:
+    build:
+      context: ./websocket-alive/express
+      dockerfile: Dockerfile
+    container_name: gestmed-events-app
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=events-postgres
+      - DB_PORT=5432
+      - DB_NAME=events_db
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - PORT=3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      events-postgres:
+        condition: service_healthy
+    volumes:
+      - ./websocket-alive/express:/app
+      - /app/node_modules
+    networks:
+      - gestmed-network
+
+  # pgAdmin for Events Database management
+  events-pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: gestmed-events-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - events-postgres
+    volumes:
+      - events_pgadmin_data:/var/lib/pgadmin
+    networks:
+      - gestmed-network
+
+volumes:
+  gestmed_postgres_data:
+  rabbit_mongo_data:
+  events_postgres_data:
+  events_pgadmin_data:
