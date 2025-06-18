@@ -1,0 +1,298 @@
+services:
+  # Database
+  patients-db:
+    image: postgres:15-alpine
+    container_name: patients-db
+    environment:
+      POSTGRES_DB: gestmed_patients_db
+      POSTGRES_USER: gestmed_user
+      POSTGRES_PASSWORD: gestmed_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - patients_db_data:/var/lib/postgresql/data
+      - ./gestmed-webapp/sql/patients.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestmed_user -d gestmed_patients_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  
+  doctors-db:
+    image: postgres:15-alpine
+    container_name: doctors-db
+    environment:
+      POSTGRES_DB: gestmed_doctors_db
+      POSTGRES_USER: gestmed_user
+      POSTGRES_PASSWORD: gestmed_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - doctors_db_data:/var/lib/postgresql/data
+      - ./gestmed-webapp/sql/doctors.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestmed_user -d gestmed_doctors_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  appointments-db:
+    image: postgres:15-alpine
+    container_name: appointments-db
+    environment:
+      POSTGRES_DB: gestmed_appointments_db
+      POSTGRES_USER: gestmed_user
+      POSTGRES_PASSWORD: gestmed_password
+    ports:
+      - "5434:5432"
+    volumes:
+      - appointments_db_data:/var/lib/postgresql/data
+      - ./gestmed-webapp/sql/appointments.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestmed_user -d gestmed_appointments_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  alive-db:
+    image: postgres:15-alpine
+    container_name: alive-db
+    environment:
+      POSTGRES_DB: gestmed_alive_db
+      POSTGRES_USER: gestmed_user
+      POSTGRES_PASSWORD: gestmed_password
+    ports:
+      - "5435:5432"
+    volumes:
+      - alive_db_data:/var/lib/postgresql/data
+      - ./gestmed-webapp/sql/alive.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestmed_user -d gestmed_alive_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5  # API Gateway (Nginx)
+  api-gateway:
+    build:
+      context: ./gestmed-webapp/api-gateway
+      dockerfile: Dockerfile.nginx
+    container_name: api-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      patients-service:
+        condition: service_healthy
+      doctors-service:
+        condition: service_healthy
+      appointments-service:
+        condition: service_healthy
+      alive-service:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Patients Microservice
+  patients-service:
+    build:
+      context: ./gestmed-webapp/backend
+      dockerfile: Dockerfile
+    container_name: patients-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - SERVICE=patients
+      - PORT=3001
+      - DB_HOST=patients-db
+      - DB_PORT=5432
+      - DB_NAME=gestmed_patients_db
+      - DB_USER=gestmed_user
+      - DB_PASSWORD=gestmed_password
+    depends_on:
+      patients-db:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Doctors Microservice
+  doctors-service:
+    build:
+      context: ./gestmed-webapp/backend
+      dockerfile: Dockerfile
+    container_name: doctors-service
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - SERVICE=doctors
+      - PORT=3002
+      - DB_HOST=doctors-db
+      - DB_PORT=5432
+      - DB_NAME=gestmed_doctors_db
+      - DB_USER=gestmed_user
+      - DB_PASSWORD=gestmed_password
+    depends_on:
+      doctors-db:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Appointments Microservice
+  appointments-service:
+    build:
+      context: ./gestmed-webapp/backend
+      dockerfile: Dockerfile
+    container_name: appointments-service
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=development
+      - SERVICE=appointments
+      - PORT=3003
+      - DB_HOST=appointments-db
+      - DB_PORT=5432
+      - DB_NAME=gestmed_appointments_db
+      - DB_USER=gestmed_user
+      - DB_PASSWORD=gestmed_password
+      - PATIENTS_SERVICE_URL=http://patients-service:3001
+      - DOCTORS_SERVICE_URL=http://doctors-service:3002
+    depends_on:
+      appointments-db:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Alive Logs Microservice
+  alive-service:
+    build:
+      context: ./gestmed-webapp/backend
+      dockerfile: Dockerfile
+    container_name: alive-service
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=development
+      - SERVICE=alive
+      - PORT=3004
+      - DB_HOST=alive-db
+      - DB_PORT=5432
+      - DB_NAME=gestmed_alive_db
+      - DB_USER=gestmed_user
+      - DB_PASSWORD=gestmed_password
+      - APPOINTMENTS_SERVICE_URL=http://appointments-service:3003    
+    depends_on:
+      alive-db:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  # Frontend
+  webapp:
+    build:
+      context: ./gestmed-webapp/webapp
+      dockerfile: Dockerfile.frontend
+    container_name: webapp
+    ports:
+      - "5173:5173"
+    environment:
+      - API_BASE_URL=http://api-gateway:3000/api
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - gestmed-network
+    volumes:
+      - ./gestmed-webapp/webapp:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - gestmed-network
+
+  alive-webapp:
+    build:
+      context: ./websocket-alive/express
+      dockerfile: Dockerfile
+    container_name: alive-webapp
+    environment:
+      - NODE_ENV=production
+      - MODE=server
+      - DB_HOST=alive-db
+      - DB_PORT=5432
+      - DB_NAME=gestmed_alive_db
+      - DB_USER=gestmed_user
+      - DB_PASSWORD=gestmed_password
+      - PORT=3000
+    ports:
+      - "3005:3000"
+    depends_on:
+      alive-db:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  patients_db_data:
+    driver: local
+  doctors_db_data:
+    driver: local
+  appointments_db_data:
+    driver: local
+  alive_db_data:
+    driver: local
+
+networks:
+  gestmed-network:
+    driver: bridge
