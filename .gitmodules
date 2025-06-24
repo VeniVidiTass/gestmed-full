@@ -7,3 +7,6 @@
 [submodule "websocket-alive"]
 	path = websocket-alive
 	url = https://github.com/VeniVidiTass/websocket-alive
+[submodule "auth-spike"]
+	path = auth-spike
+	url = https://github.com/VeniVidiTass/auth-spike

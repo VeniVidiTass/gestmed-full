@@ -1,4 +1,5 @@
 services:
+
   # Database
   patients-db:
     image: postgres:15-alpine
@@ -42,27 +43,6 @@ services:
       timeout: 10s
       retries: 5
 
-  appointments-db:
-    image: postgres:15-alpine
-    container_name: appointments-db
-    environment:
-      POSTGRES_DB: gestmed_appointments_db
-      POSTGRES_USER: gestmed_user
-      POSTGRES_PASSWORD: gestmed_password
-    ports:
-      - "5434:5432"
-    volumes:
-      - appointments_db_data:/var/lib/postgresql/data
-      - ./gestmed-webapp/sql/appointments.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - gestmed-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gestmed_user -d gestmed_appointments_db"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
   alive-db:
     image: postgres:15-alpine
     container_name: alive-db
@@ -83,30 +63,34 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5  # API Gateway (Nginx)
-  api-gateway:
-    build:
-      context: ./gestmed-webapp/api-gateway
-      dockerfile: Dockerfile.nginx
-    container_name: api-gateway
-    ports:
-      - "3000:3000"
-    depends_on:
-      patients-service:
-        condition: service_healthy
-      doctors-service:
-        condition: service_healthy
-      appointments-service:
-        condition: service_healthy
-      alive-service:
-        condition: service_healthy
+    
+      # MongoDB
+  appointments-db:
+    image: mongo:8.0.9
+    command: ["--replSet","rs0","--bind_ip_all","--port","27017"]
+    # ports: ["27017:27017"]
+    healthcheck:
+      test: ["CMD","mongosh","--quiet","--eval","db.adminCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+    volumes:
+      - appointments_db_data:/data/db
+      - appointments_db_config:/data/configdb
     networks:
       - gestmed-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  mongo_init:
+    image: mongo:8.0.9
+    depends_on:
+      appointments-db:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["sh", "-c", "chmod +x /init/mongo-init.sh && /init/mongo-init.sh"]
+    volumes:
+      - ./gestmed-webapp/mongo/mongo-init.sh:/init/mongo-init.sh
+      - ./gestmed-webapp/mongo/init-appointments.js:/init/02-init-appointments.js:ro
+    networks:
+      - gestmed-network
 
   # Patients Microservice
   patients-service:
@@ -172,17 +156,19 @@ services:
       context: ./gestmed-webapp/backend
       dockerfile: Dockerfile
     container_name: appointments-service
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     ports:
       - "3003:3003"
     environment:
       - NODE_ENV=development
       - SERVICE=appointments
       - PORT=3003
-      - DB_HOST=appointments-db
-      - DB_PORT=5432
-      - DB_NAME=gestmed_appointments_db
-      - DB_USER=gestmed_user
-      - DB_PASSWORD=gestmed_password
+
+      # ← Point at your replica-set primary via the service name and replicaSet param
+      - MONGO_URI=mongodb://appointments-db:27017/gestmed_appointments_db?replicaSet=rs0
+      - MONGO_DB_NAME=gestmed_appointments_db
+
       - PATIENTS_SERVICE_URL=http://patients-service:3001
       - DOCTORS_SERVICE_URL=http://doctors-service:3002
     depends_on:
@@ -225,8 +211,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-  # Frontend
+      retries: 3  # Frontend
   webapp:
     build:
       context: ./gestmed-webapp/webapp
@@ -235,9 +220,13 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - API_BASE_URL=http://api-gateway:3000/api
+      - VITE_API_BASE_URL=/api
+      - VITE_AUTH_ENABLED=false
+      - VITE_LOGIN_URL=https://gestmed.127.0.0.1.nip.io/oauth2/sign_in
+      - VITE_LOGOUT_URL=https://gestmed.127.0.0.1.nip.io/logout
+      - VITE_USERINFO_URL=https://gestmed.127.0.0.1.nip.io/oauth2/userinfo
     depends_on:
-      api-gateway:
+      nginx-gateway:
         condition: service_started
     networks:
       - gestmed-network
@@ -246,14 +235,27 @@ services:
       - /usr/src/app/node_modules
     command: npm run dev -- --host 0.0.0.0
     restart: unless-stopped
-
-  adminer:
-    image: adminer:latest
-    container_name: adminer
+  # User Frontend
+  user-webapp:
+    build:
+      context: ./gestmed-webapp/user-webapp
+      dockerfile: Dockerfile.frontend
+    container_name: user-webapp
     ports:
-      - "8080:8080"
+      - "5174:5174"
+    environment:
+      - VITE_API_BASE_URL=http://nginx-gateway:3000/api
+    depends_on:
+      nginx-gateway:
+        condition: service_started
     networks:
       - gestmed-network
+    volumes:
+      - ./gestmed-webapp/user-webapp:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5174
+    restart: unless-stopped
+
 
   alive-webapp:
     build:
@@ -282,6 +284,123 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+  
+  nginx-gateway:
+    build:
+      context: ./auth-full
+      dockerfile: ./nginx/Dockerfile
+    hostname: nginx-gateway
+    ports:
+      - "80:80"
+      - "443:443"
+      - "3000:3000"
+    volumes:
+      - ./auth-full/nginx/nginx.conf:/etc/nginx/nginx.conf
+    healthcheck:
+      test: service nginx status || exit 1
+      interval: 5s
+      timeout: 20s
+      retries: 5
+    depends_on:
+      oauth2-proxy:
+        condition: service_healthy
+      patients-service:
+        condition: service_healthy
+      doctors-service:
+        condition: service_healthy
+      appointments-service:
+        condition: service_healthy
+      alive-service:
+        condition: service_healthy
+    networks:
+      - gestmed-network
+
+  keycloak-database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    container_name: keycloak-database
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "keycloak"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    networks:
+      - gestmed-network 
+
+  keycloak-idp:
+    build:
+      context: ./auth-full
+      dockerfile: ./keycloak/Dockerfile
+    hostname: keycloak-idp.127.0.0.1.nip.io
+    container_name: keycloak-idp
+    environment:
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: https://keycloak-idp.127.0.0.1.nip.io
+      KC_HTTPS_PORT: 443
+    command:
+      - start
+      - --optimized
+      - --import-realm
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:9000/health/ready"]
+      interval: 5s
+      timeout: 20s
+      retries: 5
+    depends_on:
+      keycloak-database:
+        condition: service_healthy
+    networks:
+      - gestmed-network 
+
+  oauth2-proxy:
+    container_name: oauth2-proxy
+    build:
+      context: ./auth-full
+      dockerfile: ./oAuth2-proxy/Dockerfile
+    volumes:
+      - ./auth-spike/oAuth2-proxy/oauth2-proxy.cfg:/oauth2-proxy.cfg
+    command: "--config=/oauth2-proxy.cfg"
+    depends_on:
+      keycloak-idp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4180/ready"]
+      interval: 15s
+      timeout: 2s
+      retries: 5
+    networks:
+      - gestmed-network
+
+  # DB Management Tools optional
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - gestmed-network
+    
+  # Mongo Express (MongoDB web admin) optional
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    restart: unless-stopped
+    depends_on:
+      appointments-db:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_URL: "mongodb://appointments-db:27017/gestmed_appointments_db?replicaSet=rs0"
+      ME_CONFIG_BASICAUTH_ENABLED: "false"
+      ME_CONFIG_SITE_COOKIESECRET: "changeme"
+      ME_CONFIG_SITE_SESSIONSECRET: "changeme"
+    ports:
+      - "8081:8081"
+    networks:
+      - gestmed-network
+
 
 volumes:
   patients_db_data:
@@ -289,6 +408,8 @@ volumes:
   doctors_db_data:
     driver: local
   appointments_db_data:
+    driver: local
+  appointments_db_config:
     driver: local
   alive_db_data:
     driver: local
