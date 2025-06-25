@@ -184,35 +184,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Alive Logs Microservice
-  alive-service:
-    build:
-      context: ./gestmed-webapp/backend
-      dockerfile: Dockerfile
-    container_name: alive-service
-    ports:
-      - "3004:3004"
-    environment:
-      - NODE_ENV=development
-      - SERVICE=alive
-      - PORT=3004
-      - DB_HOST=alive-db
-      - DB_PORT=5432
-      - DB_NAME=gestmed_alive_db
-      - DB_USER=gestmed_user
-      - DB_PASSWORD=gestmed_password
-      - APPOINTMENTS_SERVICE_URL=http://appointments-service:3003    
-    depends_on:
-      alive-db:
-        condition: service_healthy
-    networks:
-      - gestmed-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3  # Frontend
   webapp:
     build:
       context: ./gestmed-webapp/webapp
@@ -301,7 +272,7 @@ services:
       test: service nginx status || exit 1
       interval: 5s
       timeout: 20s
-      retries: 5
+      retries: 10
     depends_on:
       oauth2-proxy:
         condition: service_healthy
