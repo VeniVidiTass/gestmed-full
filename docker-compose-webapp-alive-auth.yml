@@ -27,6 +27,10 @@ services:
         condition: service_healthy
       alive-service:
         condition: service_healthy
+      webapp:
+        condition: service_started
+      user-webapp:
+        condition: service_started
     networks:
       - gestmed-network
 

@@ -225,14 +225,13 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_BASE_URL=http://nginx-gateway:3000/api
-      - VITE_AUTH_ENABLED=false
-      - VITE_LOGIN_URL=http://localhost:8080/auth/login
-      - VITE_LOGOUT_URL=http://localhost:8080/
-      - VITE_USERINFO_URL=http://localhost:8080/auth/userinfo
-    depends_on:
-      nginx-gateway:
-        condition: service_started
+      - VITE_API_BASE_URL=/api
+      - VITE_LOGIN_REDIRECT_URL=/oauth2/sign_in
+      - VITE_LOGOUT_REDIRECT_URL=/logout
+      - VITE_USERINFO_URL=https://gestmed.127.0.0.1.nip.io/oauth2/userinfo
+    # depends_on:
+    #   nginx-gateway:
+    #     condition: service_started
     networks:
       - gestmed-network
     volumes:
@@ -251,9 +250,9 @@ services:
       - "5174:5174"
     environment:
       - VITE_API_BASE_URL=http://nginx-gateway:3000/api
-    depends_on:
-      nginx-gateway:
-        condition: service_started
+    # depends_on:
+    #   nginx-gateway:
+    #     condition: service_started
     networks:
       - gestmed-network
     volumes:
