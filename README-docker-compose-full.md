@@ -4,6 +4,7 @@ Questo docker-compose include tutti i servizi di tutti i submoduli del progetto 
 
 ** ACCEDERE TRAMITE L'URL https://gestmed.127.0.0.1.nip.io/ a webapp **
 ** ACCEDERE TRAMITE L'URL http://gestmed-user.127.0.0.1.nip.io/ a user-webapp **
+** ACCEDERE TRAMITE L'URL http://gestmed-alive.127.0.0.1.nip.io/ a websocket-alive **
 
 ## Servizi Inclusi
 
