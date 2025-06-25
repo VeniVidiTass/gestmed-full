@@ -4,7 +4,7 @@ COPY certs/ nginx/keycloak-idp.conf /certs/
 
 WORKDIR /certs
 
-RUN ./create-key-and-cert.sh keycloak-idp
+RUN chmod +x ./create-key-and-cert.sh && ./create-key-and-cert.sh keycloak-idp
 
 #################################################
 

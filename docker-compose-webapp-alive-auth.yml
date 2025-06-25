@@ -349,6 +349,7 @@ services:
       interval: 5s
       timeout: 20s
       retries: 5
+      start_period: 30s
     depends_on:
       keycloak-database:
         condition: service_healthy
