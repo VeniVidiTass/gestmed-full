@@ -68,7 +68,6 @@ services:
   appointments-db:
     image: mongo:8.0.9
     command: ["--replSet","rs0","--bind_ip_all","--port","27017"]
-    # ports: ["27017:27017"]
     healthcheck:
       test: ["CMD","mongosh","--quiet","--eval","db.adminCommand({ping:1}).ok"]
       interval: 10s
@@ -157,19 +156,14 @@ services:
       context: ./gestmed-webapp/backend
       dockerfile: Dockerfile
     container_name: appointments-service
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
     ports:
       - "3003:3003"
     environment:
       - NODE_ENV=development
       - SERVICE=appointments
       - PORT=3003
-
-      # ← Point at your replica-set primary via the service name and replicaSet param
       - MONGO_URI=mongodb://appointments-db:27017/gestmed_appointments_db?replicaSet=rs0
       - MONGO_DB_NAME=gestmed_appointments_db
-
       - PATIENTS_SERVICE_URL=http://patients-service:3001
       - DOCTORS_SERVICE_URL=http://doctors-service:3002
     depends_on:
@@ -207,6 +201,7 @@ services:
       - /usr/src/app/node_modules
     command: npm run dev -- --host 0.0.0.0
     restart: unless-stopped
+
   # User Frontend
   user-webapp:
     build:
