@@ -64,7 +64,7 @@ services:
       timeout: 10s
       retries: 5  # API Gateway (Nginx)
     
-      # MongoDB
+  # MongoDB
   appointments-db:
     image: mongo:8.0.9
     command: ["--replSet","rs0","--bind_ip_all","--port","27017"]
@@ -81,6 +81,7 @@ services:
       - gestmed-network
   mongo_init:
     image: mongo:8.0.9
+    container_name: mongo-init
     depends_on:
       appointments-db:
         condition: service_healthy
