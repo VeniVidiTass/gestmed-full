@@ -126,3 +126,10 @@ docker-compose -f docker-compose-full.yml down -v
 docker system prune -f
 docker-compose -f docker-compose-full.yml up -d
 ```
+
+### Avviare docker-compose multipli
+Per evitare di avere un unico file docker-compose, rabbit-spike ha un file docker-compose separato.
+Per avviare gestmed e rabbit-spike contemporaneamente, puoi usare:
+```bash
+docker-compose -f docker-compose-webapp-alive-auth.yml -f rabbit-spike/docker-compose-full.yml up -d
+```
