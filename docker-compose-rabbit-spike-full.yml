@@ -31,7 +31,7 @@ services:
       APP_BRIDGE_EMAIL_QUEUE:             email-queue
       APP_BRIDGE_SMS_QUEUE:               sms-queue
       APP_BRIDGE_APPOINTMENT_COLLECTION:  appointments
-      APP_BRIDGE_SERVICE_API_BASE_URL:    http://api-gateway:3000/api
+      APP_BRIDGE_SERVICE_API_BASE_URL:    http://nginx-gateway:3000/api
       SPRING_MAIN_WEB_APPLICATION_TYPE:   none
     depends_on:
       rabbitmq:
