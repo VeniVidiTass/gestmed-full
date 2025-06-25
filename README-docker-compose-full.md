@@ -2,7 +2,8 @@
 
 Questo docker-compose include tutti i servizi di tutti i submoduli del progetto GestMed.
 
-** ACCEDERE TRAMITE L'URL https://gestmed.127.0.0.1.nip.io/ **
+** ACCEDERE TRAMITE L'URL https://gestmed.127.0.0.1.nip.io/ a webapp **
+** ACCEDERE TRAMITE L'URL http://gestmed-user.127.0.0.1.nip.io/ a user-webapp **
 
 ## Servizi Inclusi
 
