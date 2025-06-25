@@ -133,14 +133,20 @@ Per avviare gestmed e rabbit-spike contemporaneamente, puoi usare:
 ```bash
 docker-compose \
   -f docker-compose-webapp-alive-auth.yml \
-  -f rabbit-spike/docker-compose-full.yml \
-  -f websocket-alive/docker-compose-full.yml up -d
+  -f docker-compose-rabbit-spike-full.yml \
+  -f docker-compose-websocket-alive-full.yml \
+  -f docker-compose-gestmed-webapp-full.yml \
+  --profile debug \
+  up -d
 ```
+--profile debug è opzionale e serve per avviare i servizi di gestione dei database (MongoExpress, pgAdmin).
+
 Per rimuovere i Servizi e i loro volumi:
 ```bash
 docker-compose \
   -f docker-compose-webapp-alive-auth.yml \
-  -f rabbit-spike/docker-compose-full.yml \
-  -f websocket-alive/docker-compose-full.yml \
+  -f docker-compose-rabbit-spike-full.yml \
+  -f docker-compose-websocket-alive-full.yml \
+  -f docker-compose-gestmed-webapp-full.yml \
   down -v
 ```
